@@ -67,7 +67,7 @@ def main():
                 preprocessed_text = preprocess_text(extracted_text)
 
                 # Prompt OpenAI's language model to extract key terms
-                prompt = f"Extract critical insights from patient complaint data to aid a healthcare committee in swiftly identifying trends and addressing concerns, ultimately improving patient care standards from the following text:\n{preprocessed_text}\n\nAfter extraction, please provide the frequency count for each key term and return it as a map."
+                prompt = f"Extract critical keywords from patient complaint data to aid a healthcare committee in swiftly identifying trends and addressing concerns, from the following text:\n{preprocessed_text}\n\nAfter extraction, please provide the frequency count for each key term and return it as a map only."
 
 
                 response = openai.chat.completions.create(
