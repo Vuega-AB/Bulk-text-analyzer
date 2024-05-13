@@ -1,101 +1,110 @@
 import streamlit as st
-from pdfplumber import open as open_pdf
-from pdf2image import convert_from_path
-import os
+import openai
+from openai import ChatCompletion
+import xml.etree.ElementTree as ET
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer
 import pandas as pd
-from pdfminer.high_level import extract_text
-from transformers import pipeline
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.cluster import KMeans
-import matplotlib.pyplot as plt
-import seaborn as sns
+import re
 
-# Function to preprocess healthcare complaint data
-def preprocess_data(data):
-    # Your preprocessing steps here
-    return preprocessed_data
+# Function to preprocess text data
+def preprocess_text(text):
+    # Remove numbers and unwanted values
+    text = re.sub(r'\d+', '', text)  # Remove numbers
+    text = re.sub(r'\b\w{1,2}\b', '', text)  # Remove words with 1 or 2 characters
+    text = re.sub(r'[^\w\s]', '', text)  # Remove punctuation
+    
+    # Tokenize text
+    tokens = word_tokenize(text)
+    
+    # Remove stopwords
+    stop_words = set(stopwords.words('english'))
+    tokens = [token for token in tokens if token.lower() not in stop_words]
+    
+    # Stemming
+    stemmer = PorterStemmer()
+    stemmed_tokens = [stemmer.stem(token) for token in tokens]
+    
+    # Join tokens back into text
+    preprocessed_text = ' '.join(stemmed_tokens)
+    
+    return preprocessed_text
 
-# Function to generate embeddings using OpenAI's language models
-def generate_embeddings(text):
-    # Your code to generate embeddings using OpenAI's language models
-    return embeddings
 
-# Function to extract keywords from text
-def extract_keywords(text):
-    # Your code to extract keywords using OpenAI
-    return keywords
-
-# Function to select representative documents
-def select_representative_documents(texts, embeddings):
-    # Your code to select representative documents
-    return representative_documents
-
-# Function to highlight top sentences
-def highlight_top_sentences(text, embeddings):
-    # Your code to highlight top sentences
-    return top_sentences
-
-# Function for topic modeling
-def topic_modeling(texts):
-    # Your code for topic modeling
-    return topics
-
-# Function for sentiment analysis
-def sentiment_analysis(text):
-    # Your code for sentiment analysis
-    return sentiment
-
-# Function for anomaly detection
-def anomaly_detection(text):
-    # Your code for anomaly detection
-    return anomalies
-
-# Function for predictive analytics
-def predictive_analytics(data):
-    # Your code for predictive analytics
-    return predictions
-
-# Function to create visualizations and dashboard
-def create_dashboard(data, topics):
-    # Your code to create visualizations and dashboard
-    pass
+# Function to extract text from XML file
+def extract_text_from_xml(xml_file):
+    data = pd.read_excel(xml_file)
+    text = ""
+    for column in data.columns:
+        text += " ".join(data[column].astype(str)) + " "
+    return text
 
 def main():
-    st.title("Insight360 - Enhancing Healthcare Complaint Analysis")
+    st.title("Complaints Analysis with OpenAI")
 
-    st.subheader("Upload PDFs containing healthcare complaints")
-    uploaded_files = st.file_uploader("Upload PDF files", type="pdf", accept_multiple_files=True)
+    # Input field for OpenAI API key
+    openai_api_key = st.text_input("Enter your OpenAI API key:", "")
 
-    if uploaded_files:
-        st.subheader("Processing PDFs...")
-        text_data = ""
-        for file in uploaded_files:
-            with open_pdf(file) as pdf:
-                for page in pdf.pages:
-                    text_data += page.extract_text()
-        
-        # Preprocess data
-        preprocessed_data = preprocess_data(text_data)
+    if openai_api_key:
+        # Set OpenAI API key
+        openai.api_key = openai_api_key
 
-        # Generate embeddings
-        embeddings = generate_embeddings(preprocessed_data)
+        # Input field for uploading XML file
+        xml_file = st.file_uploader("Upload XML file", type=["xlsx"])
 
-        # Extraction of Insights
-        keywords = extract_keywords(preprocessed_data)
-        representative_documents = select_representative_documents(preprocessed_data, embeddings)
-        top_sentences = highlight_top_sentences(preprocessed_data, embeddings)
+        if xml_file:
+            # Display XML file content
+            st.subheader("Extracted Key Terms:")
 
-        # Topic Modeling
-        topics = topic_modeling(preprocessed_data)
+            # Extract text from XML file
+            extracted_text = extract_text_from_xml(xml_file)
+            # st.subheader("Extracted Text:")
+            # st.write(extracted_text)
 
-        # Additional Explorations
-        sentiment = sentiment_analysis(preprocessed_data)
-        anomalies = anomaly_detection(preprocessed_data)
-        predictions = predictive_analytics(preprocessed_data)
+            if st.button("Extract Key Terms"):
+                # Preprocess the extracted text
+                preprocessed_text = preprocess_text(extracted_text)
 
-        # Create visualizations and dashboard
-        create_dashboard(preprocessed_data, topics)
+                # Prompt OpenAI's language model to extract key terms
+                prompt = f"Extract critical insights from patient complaint data to aid a healthcare committee in swiftly identifying trends and addressing concerns, ultimately improving patient care standards from the following text:\n{preprocessed_text}\n\nAfter extraction, please provide the frequency count for each key term and return it as a map."
+
+
+                response = openai.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ]
+                )
+             
+                
+                key_terms = response.choices[0].message.content
+
+                st.subheader("Extracted Key Terms:")
+
+                st.write(key_terms)
+
+                # Convert the string into a dictionary
+                key_terms_dict = eval(key_terms)
+
+                # Separate key terms and counts into two lists
+                key_terms = list(key_terms_dict.keys())
+                counts = list(key_terms_dict.values())
+
+                # Create a dictionary of key terms and their counts
+                data = {'Key Term': key_terms, 'Frequency Count': counts}
+
+                # Create a DataFrame from the dictionary
+                df = pd.DataFrame(data)
+
+                # Draw the bar chart
+                st.subheader("Key Term Frequency Counts:")
+
+                st.subheader("Bar chart for key terms:")
+                st.bar_chart(df.set_index('Key Term'))
 
 if __name__ == "__main__":
     main()
