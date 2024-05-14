@@ -144,7 +144,7 @@ def plot_word_frequencies(topics, num_top_words=20):
 def main():
     st.set_page_config(page_title="Bulk text analyzer", page_icon="⚡")
 
-    st.title("Complaints Analysis with OpenAI")
+    st.title("Bulk text analyzer 🤖")
 
     # Input field for OpenAI API key
     openai_api_key = st.text_input("Enter your OpenAI API key:", "")
