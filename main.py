@@ -30,49 +30,35 @@ LANG_MAPPING = {
     'te': 'telugu', 'th': 'thai', 'tl': 'tagalog', 'tr': 'turkish', 'uk': 'ukrainian', 'ur': 'urdu',
     'vi': 'vietnamese', 'zh-cn': 'chinese', 'zh-tw': 'chinese', 'unknown': 'english'
 }
+# Function to count the occurrences of related words in the original text
+def count_related_words_in_text(text, related_words):
+    word_freq_map = {word: 0 for word in related_words}
 
-def preprocess_data_Map(text):
-
-    text = str(text).lower()
-    # Detect the language of the text
-    try:
-        lang = detect(text)
-    except:
-        lang = 'unknown'  # Handle cases where language detection fails
-
-    # Tokenize sentences
-    sentences = sent_tokenize(text)
-    
-    # Initialize a dictionary to accumulate word frequencies across all sentences
-    word_freq_map = {}
-    
-    for idx, sentence in enumerate(sentences):
-        # Tokenize words in each sentence
-        tokens = word_tokenize(sentence)
-        
-        # Remove punctuation and unwanted tokens
-        tokens = [token.strip(string.punctuation) for token in tokens if token.strip(string.punctuation) != '' and not token.isdigit()]
-        
-        # Select stopwords based on detected language
-        if lang in LANG_MAPPING:
-            stop_words = set(stopwords.words(LANG_MAPPING[lang]))
-        else:
-            stop_words = set()  # Default to empty set if stopwords for language are not available
-        
-        # Remove stopwords and non-meaningful tokens
-        filtered_tokens = [token for token in tokens if token not in stop_words and not token.isnumeric() and len(token) > 1]
-        
-        # Count frequencies of filtered tokens in the current sentence
-        word_counts = Counter(filtered_tokens)
-        
-        # Update the word_freq_map with current sentence's word frequencies
-        for word, count in word_counts.items():
-            if word in word_freq_map:
-                word_freq_map[word] += count
-            else:
-                word_freq_map[word] = count
+    for word in related_words:
+        word_freq_map[word] = text.lower().count(word)
 
     return word_freq_map
+
+def plot_word_frequencies(word_freq_map, num_top_words=20):
+    sorted_word_freq = sorted(word_freq_map.items(), key=lambda x: x[1], reverse=True)
+    top_words = dict(sorted_word_freq[:num_top_words])
+    st.bar_chart(top_words)
+
+def preprocess_data_Map(chatgpt_words, text):
+    # Convert text to lowercase and remove unwanted characters
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', '', text)  # Remove punctuation
+    text = re.sub(r'\d+', '', text)  # Remove digits
+
+    # Initialize the frequency map for ChatGPT words
+    filtered_word_freq_map = {word: 0 for word in chatgpt_words}
+
+    # Count occurrences of each phrase in chatgpt_words in the text
+    for chatgpt_word in chatgpt_words:
+        count = text.count(chatgpt_word.lower())
+        filtered_word_freq_map[chatgpt_word] = count
+
+    return filtered_word_freq_map
 
 # Function to preprocess text data
 def preprocess_text(text):
@@ -107,9 +93,9 @@ def extract_text_from_xml(xml_file):
 
 def split_text_into_chunks(text):
     text_splitter = CharacterTextSplitter(
-        separator="\n",
+        separator=" ",
         chunk_size=1000,
-        chunk_overlap=0,##
+        chunk_overlap=200,
         length_function=len
     )
     text_chunks = text_splitter.split_text(text)
@@ -133,13 +119,8 @@ def get_conversation_chain(vector_store, openai_api_key):
         retriever=vector_store.as_retriever(),
         llm=llm,  
         memory=memory)
-    result = conversation_chain({"question": "extract related words based on this data, return it in a list in the same language"})
+    result = conversation_chain({"question": "extract related words based on this data, return it in a list comma seprated in the same language"})
     return result["answer"]
-
-def plot_word_frequencies(topics, num_top_words=20):
-    sorted_word_freq = sorted(topics.items(), key=lambda x: x[1], reverse=True)
-    top_words = dict(sorted_word_freq[:num_top_words])
-    st.bar_chart(top_words)
 
 def main():
     st.set_page_config(page_title="Bulk text analyzer", page_icon="⚡")
@@ -147,7 +128,7 @@ def main():
     st.title("Bulk text analyzer 🤖")
 
     # Input field for OpenAI API key
-    openai_api_key = st.text_input("Enter your OpenAI API key:", "")
+    openai_api_key = st.text_input("Enter your OpenAI API key:", "", type= 'password')
 
     if openai_api_key:
         # Set OpenAI API key
@@ -160,36 +141,32 @@ def main():
             # Display XML file content
             st.subheader("Extracted Key Terms:")
 
-            # Extract text from XML file
             extracted_text = extract_text_from_xml(xml_file)
-            # st.subheader("Extracted Text:")
-
-            data = pd.read_excel(xml_file)
-
-            all_text = ' '.join(data['Sammanfattning'].astype(str))
-
-            prep_text = preprocess_data_Map(all_text)
-            
+            extracted_text = preprocess_text(extracted_text)
             if st.button("Extract Key Terms"):
-                # Preprocess the extracted text
-                preprocessed_text = preprocess_text(extracted_text)
-
-                #st.write(preprocessed_text)
                 # Split text into chunks
-                text_chunks = split_text_into_chunks(preprocessed_text)
+                text_chunks = split_text_into_chunks(extracted_text)
+
+                #st.write(text_chunks)
 
                 # Create vector store from text chunks
                 vector_store = create_vector_store_from_text_chunks(text_chunks, openai_api_key)
 
-                # Get conversation chain
+                st.write(vector_store.index.ntotal)
+
+                # Get conversation chain result from ChatGPT
                 result = get_conversation_chain(vector_store, openai_api_key)
 
                 st.subheader("Response:")
                 st.write(result)
 
-                result_array = result.split(", ")
+                # Convert the result from ChatGPT into a list of words
+                result = result.replace(".", "")
+                result_words = result.split(", ")
 
-                filtered_word_freq_map = {word: prep_text.get(word, 0) for word in result_array}
+
+                # Preprocess the extracted text data with the words from ChatGPT
+                filtered_word_freq_map = count_related_words_in_text(extracted_text, result_words)
 
                 st.subheader("Map")
                 st.write(filtered_word_freq_map)
