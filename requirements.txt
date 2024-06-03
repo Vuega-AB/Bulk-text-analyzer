@@ -1,0 +1,8 @@
+streamlit
+openai
+pandas
+regex
+langchain-community
+langchain
+nltk
+faiss-cpu
