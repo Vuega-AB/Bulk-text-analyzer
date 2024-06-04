@@ -7,3 +7,4 @@ langchain
 nltk
 faiss-cpu
 openpyxl
+nltk[punkt]
