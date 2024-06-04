@@ -11,6 +11,9 @@ from langchain_community.chat_models import ChatOpenAI
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
+import nltk
+nltk.download('punkt')
+nltk.download('stopwords')
 
 # Function to count the occurrences of related words in the original text
 def count_related_words_in_text(text, related_words):
