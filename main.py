@@ -5,12 +5,17 @@ from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 import pandas as pd
 import re
+import nltk
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from langchain_community.chat_models import ChatOpenAI
+
+# Download NLTK data
+nltk.download('punkt')
+nltk.download('stopwords')
 
 # Language mapping
 LANG_MAPPING = {
