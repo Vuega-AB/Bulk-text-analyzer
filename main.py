@@ -51,11 +51,14 @@ def preprocess_text(text):
     text = re.sub(r'[^\w\s]', '', text)  # Remove punctuation
     tokens = word_tokenize(text)
     stop_words = set(stopwords.words('english'))
-    tokens = [token for token in tokens if token.lower() not in stop_words]
-    stemmer = PorterStemmer()
-    stemmed_tokens = [stemmer.stem(token) for token in tokens]
-    preprocessed_text = ' '.join(stemmed_tokens)
+    filtered_tokens = []
+    for token in tokens:
+        if token.lower() not in stop_words:
+            if any(char.isalnum() for char in token):  # Check if token has alphanumeric characters
+                filtered_tokens.append(token.lower())
+    preprocessed_text = ' '.join(filtered_tokens)
     return preprocessed_text
+
 
 # Function to extract text from XML file
 def extract_text_from_xml(xml_file):
