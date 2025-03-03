@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import matplotlib.pyplot as plt
-from wordcloud import WordCloud
 import re
 import json
 import os
+import time  # Added for delay
 from dotenv import load_dotenv
 import google.generativeai as genai
 import openai
@@ -78,39 +78,41 @@ def call_llm(prompt):
     selected_llm = st.session_state.selected_llm
     if selected_llm == "Google Gemini":
         genai.configure(api_key=api_key)
-        return genai.GenerativeModel('gemini-1.5-flash').generate_content(prompt).text
+        result = genai.GenerativeModel('gemini-1.5-flash').generate_content(prompt).text
     elif selected_llm == "OpenAI GPT-4":
-        return openai.ChatCompletion.create(
+        result = openai.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7
         ).choices[0].message.content
     elif selected_llm == "Together Llama":
-        return generate_response_together(
+        result = generate_response_together(
             prompt=prompt, context="", 
             model="meta-llama/Llama-3.3-70B-Instruct-Turbo", 
             temp=0.7, top_p=1.0
         )
+    time.sleep(2)  # 5 second delay between API calls
+    return result
 
 # Main Application
 st.title("Excel Data Visualization with LLM")
-st.write("Upload an Excel file to generate AI-powered visualizations")
+st.write("Upload an Excel file to generate AI-powered visualizations.")
 
 if st.session_state.df is not None:
-    # Generate visualization suggestions if not already present
+    # First, analyze the dataset and get suggestions from the model.
     if not st.session_state.suggestions:
         with st.spinner("Analyzing data and generating suggestions..."):
             sample_data = st.session_state.df.head(100).to_csv(index=False)  # use first 100 rows as sample
             columns = list(st.session_state.df.columns)
+            # Updated suggestion prompt: now only for bar_chart, pie_chart, histogram.
             prompt = f"""Analyze this dataset with columns: {columns} and sample data:
 {sample_data}
-Suggest visualizations in JSON format with keys: bar_chart, pie_chart, word_cloud, histogram, line_chart.
+Suggest visualizations in JSON format with keys: bar_chart, pie_chart, histogram.
 Each key should contain a list of suggestions with:
 - title (specific and descriptive)
-- "x_axis" and "y_axis" (exact names from: {columns}) for bar_chart, line_chart, histogram
-- "labels" and "values" (exact names from: {columns}) for pie_chart
-- "text" (exact name from: {columns}) for word_cloud
-- brief description
+- For bar_chart, histogram: "x_axis" and "y_axis" (exact names from: {columns})
+- For pie_chart: "labels" and "values" (exact names from: {columns})
+- A brief description.
 
 Format example:
 {{
@@ -128,16 +130,20 @@ Return ONLY valid JSON with exact column names as provided (do not add extra wor
             try:
                 response = call_llm(prompt)
                 st.session_state.suggestions = json.loads(extract_json(response))
+                # Remove scatter_chart suggestions if any exist
+                if "scatter_chart" in st.session_state.suggestions:
+                    del st.session_state.suggestions["scatter_chart"]
             except Exception as e:
                 st.error(f"Failed to parse suggestions: {str(e)}")
-
+    
     if st.session_state.suggestions:
-        # Visualization Selection
-        available_viz = list(st.session_state.suggestions.keys())
-        selected = st.multiselect("Choose visualizations", available_viz, key="selected_viz")
-        
-        with st.expander("Raw LLM Suggestions"):
+        st.markdown("### Analysis Complete: Visualization Suggestions")
+        with st.expander("View Raw Suggestions"):
             st.code(json.dumps(st.session_state.suggestions, indent=2), language="json")
+        
+        # Filter out empty suggestion lists
+        available_viz = [key for key, sugg in st.session_state.suggestions.items() if sugg]
+        selected = st.multiselect("Choose visualizations to draw", available_viz, key="selected_viz")
         
         # Create tabs for each selected visualization type
         if selected:
@@ -148,7 +154,7 @@ Return ONLY valid JSON with exact column names as provided (do not add extra wor
                     for viz in st.session_state.suggestions.get(viz_type, []):
                         try:
                             # Determine required columns for this visualization type
-                            if viz_type in ['bar_chart', 'line_chart']:
+                            if viz_type == 'bar_chart':
                                 x_col = viz.get('x_axis', '')
                                 y_col = viz.get('y_axis', '')
                                 cols = [x_col, y_col]
@@ -159,9 +165,6 @@ Return ONLY valid JSON with exact column names as provided (do not add extra wor
                                 labels = viz.get('labels', '')
                                 values = viz.get('values', '')
                                 cols = [labels, values]
-                            elif viz_type == 'word_cloud':
-                                text_col = viz.get('text', '')
-                                cols = [text_col]
                             else:
                                 continue
 
@@ -173,7 +176,7 @@ Return ONLY valid JSON with exact column names as provided (do not add extra wor
 
                             # Build mapping prompt to call the LLM for visualization data
                             data_sample = st.session_state.df[cols].to_dict(orient='list')
-                            if viz_type in ['bar_chart', 'line_chart', 'histogram']:
+                            if viz_type in ['bar_chart', 'histogram']:
                                 mapping_text = (
                                     f"Generate data for a {viz_type.replace('_', ' ')} titled '{viz.get('title','')}' using the following data sample from columns {cols}: {data_sample}. "
                                     "Return ONLY a valid JSON object with exactly two keys: 'x' (a list of x values) and 'y' (a list of y values). "
@@ -184,12 +187,6 @@ Return ONLY valid JSON with exact column names as provided (do not add extra wor
                                     f"Generate data for a pie chart titled '{viz.get('title','')}' using the following data sample from columns {cols}: {data_sample}. "
                                     "Return ONLY a valid JSON object with exactly two keys: 'labels' (a list of labels) and 'values' (a list of numeric values). "
                                     f"Ensure that the keys correspond exactly to the provided column names: {cols}."
-                                )
-                            elif viz_type == 'word_cloud':
-                                mapping_text = (
-                                    f"Generate word frequency data for a word cloud titled '{viz.get('title','')}' using the following data sample from column {cols[0]}: {st.session_state.df[cols[0]].to_dict(orient='list')}. "
-                                    "Return ONLY a valid JSON object where each key is a word and its value is an integer frequency. "
-                                    f"Ensure that the column name matches exactly: {cols[0]}."
                                 )
                             else:
                                 mapping_text = (
@@ -210,27 +207,20 @@ Return ONLY valid JSON with exact column names as provided (do not add extra wor
                                 continue
                             
                             # Render visualization using the LLM-provided data
-                            if viz_type in ['bar_chart', 'line_chart']:
+                            if viz_type == 'bar_chart':
                                 try:
                                     df_chart = pd.DataFrame({
                                         "x": viz_data.get("x", []),
                                         "y": viz_data.get("y", [])
                                     })
-                                    if viz_type == 'bar_chart':
-                                        fig = px.bar(
-                                            df_chart, x="x", y="y", title=viz.get("title", ""),
-                                            labels={"x": viz.get("x_axis", "X-axis"), "y": viz.get("y_axis", "Y-axis")},
-                                            color_discrete_sequence=px.colors.qualitative.Pastel
-                                        )
-                                    else:
-                                        fig = px.line(
-                                            df_chart, x="x", y="y", title=viz.get("title", ""),
-                                            labels={"x": viz.get("x_axis", "X-axis"), "y": viz.get("y_axis", "Y-axis")},
-                                            color_discrete_sequence=px.colors.qualitative.Pastel
-                                        )
+                                    fig = px.bar(
+                                        df_chart, x="x", y="y", title=viz.get("title", ""),
+                                        labels={"x": viz.get("x_axis", "X-axis"), "y": viz.get("y_axis", "Y-axis")},
+                                        color_discrete_sequence=px.colors.qualitative.Pastel
+                                    )
                                     st.plotly_chart(fig, use_container_width=True)
                                 except Exception as e:
-                                    st.error(f"Error rendering {viz_type} for {viz.get('title','Untitled')}: {e}")
+                                    st.error(f"Error rendering bar chart for {viz.get('title','Untitled')}: {e}")
                             elif viz_type == 'histogram':
                                 try:
                                     df_chart = pd.DataFrame({
@@ -258,21 +248,6 @@ Return ONLY valid JSON with exact column names as provided (do not add extra wor
                                     st.plotly_chart(fig, use_container_width=True)
                                 except Exception as e:
                                     st.error(f"Error rendering pie chart for {viz.get('title','Untitled')}: {e}")
-                            elif viz_type == 'word_cloud':
-                                try:
-                                    plt.figure(figsize=(10, 5))
-                                    wc = WordCloud(
-                                        width=800, 
-                                        height=400, 
-                                        background_color='white',
-                                        colormap='viridis'
-                                    ).generate_from_frequencies(viz_data)
-                                    plt.imshow(wc, interpolation='bilinear')
-                                    plt.axis('off')
-                                    plt.title(viz.get("title", ""))
-                                    st.pyplot(plt)
-                                except Exception as e:
-                                    st.error(f"Error rendering word cloud for {viz.get('title','Untitled')}: {e}")
                             
                             st.markdown("---")
                         except Exception as e:
