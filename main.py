@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import re
 import json
 import os
-import time  # Added for delay
+import time  
 from dotenv import load_dotenv
 import google.generativeai as genai
 import openai
@@ -91,7 +91,7 @@ def call_llm(prompt):
             model="meta-llama/Llama-3.3-70B-Instruct-Turbo", 
             temp=0.7, top_p=1.0
         )
-    time.sleep(2)  # 5 second delay between API calls
+    time.sleep(2)  # Delay between API calls
     return result
 
 # Main Application
@@ -252,5 +252,77 @@ Return ONLY valid JSON with exact column names as provided (do not add extra wor
                             st.markdown("---")
                         except Exception as e:
                             st.error(f"Error generating {viz_type} visualization: {e}")
+    
+    # New Feature: Custom Visualization Request
+    st.markdown("### Custom Visualization Request")
+    with st.expander("Custom Visualization"):
+        custom_request = st.text_area("Enter your custom visualization request:", 
+                                      placeholder="E.g., Plot a line chart showing monthly revenue trends")
+        custom_chart_type = st.selectbox("Select custom chart type:", ["bar_chart", "line_chart", "pie_chart", "histogram"])
+        if st.button("Generate Custom Visualization"):
+            if custom_request:
+                sample_data = st.session_state.df.head(100).to_csv(index=False)
+                columns = list(st.session_state.df.columns)
+                if custom_chart_type in ["bar_chart", "line_chart", "histogram"]:
+                    key_info = "'x' (list of x values) and 'y' (list of y values)"
+                elif custom_chart_type == "pie_chart":
+                    key_info = "'labels' (list of labels) and 'values' (list of numeric values)"
+                mapping_text = (
+                    f"Generate data for a {custom_chart_type.replace('_', ' ')} titled 'Custom Visualization' using the following custom instructions: '{custom_request}'. "
+                    f"Use the following sample data from the dataset with columns {columns}: {sample_data}. "
+                    f"Return ONLY a valid JSON object with exactly two keys: {key_info}. "
+                    "Ensure the keys correspond exactly to the provided column names where applicable."
+                )
+                custom_viz_data_str = call_llm(mapping_text)
+                st.write("LLM Generated Data for Custom Visualization:")
+                st.code(custom_viz_data_str, language="json")
+                clean_custom_data = extract_json(custom_viz_data_str)
+                try:
+                    custom_viz_data = json.loads(clean_custom_data)
+                except Exception as e:
+                    st.error(f"Error parsing custom visualization data: {e}")
+                # Render custom visualization based on selected chart type
+                if custom_chart_type in ["bar_chart", "line_chart", "histogram"]:
+                    try:
+                        df_custom = pd.DataFrame({
+                            "x": custom_viz_data.get("x", []),
+                            "y": custom_viz_data.get("y", [])
+                        })
+                        if custom_chart_type == "bar_chart":
+                            fig_custom = px.bar(
+                                df_custom, x="x", y="y", title="Custom Visualization",
+                                labels={"x": "X-axis", "y": "Y-axis"},
+                                color_discrete_sequence=px.colors.qualitative.Pastel
+                            )
+                        elif custom_chart_type == "line_chart":
+                            fig_custom = px.line(
+                                df_custom, x="x", y="y", title="Custom Visualization",
+                                labels={"x": "X-axis", "y": "Y-axis"},
+                                color_discrete_sequence=px.colors.qualitative.Pastel
+                            )
+                        elif custom_chart_type == "histogram":
+                            fig_custom = px.histogram(
+                                df_custom, x="x", y="y", title="Custom Visualization",
+                                labels={"x": "X-axis", "y": "Frequency"},
+                                color_discrete_sequence=px.colors.qualitative.Pastel
+                            )
+                        st.plotly_chart(fig_custom, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Error rendering custom chart: {e}")
+                elif custom_chart_type == "pie_chart":
+                    try:
+                        fig_custom = px.pie(
+                            names=custom_viz_data.get("labels", []),
+                            values=custom_viz_data.get("values", []),
+                            title="Custom Visualization",
+                            color_discrete_sequence=px.colors.qualitative.Pastel,
+                            hole=0.3
+                        )
+                        fig_custom.update_traces(textposition='inside', textinfo='percent+label')
+                        st.plotly_chart(fig_custom, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Error rendering custom pie chart: {e}")
+            else:
+                st.warning("Please enter a custom visualization request.")
 else:
     st.info("Please upload an Excel file using the sidebar")
