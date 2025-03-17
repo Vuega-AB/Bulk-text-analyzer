@@ -336,6 +336,8 @@ with main_tabs[1]:
             st.subheader(f"Statistics for {selected_column}")
             column_data = st.session_state.df[selected_column]
             data_type = column_data.dtype
+            
+            # Compute statistics and show visualizations
             if pd.api.types.is_numeric_dtype(data_type):
                 stats = {
                     "Count": column_data.count(),
@@ -346,7 +348,10 @@ with main_tabs[1]:
                     "Max": column_data.max(),
                     "Std Dev": column_data.std()
                 }
-                st.write(pd.DataFrame(stats.items(), columns=["Statistic", "Value"]))
+                # Use st.dataframe with a set height to make the table larger
+                stats_df = pd.DataFrame(stats.items(), columns=["Statistic", "Value"])
+                st.dataframe(stats_df, use_container_width=True)
+                
                 fig = px.histogram(
                     st.session_state.df, x=selected_column, 
                     title=f"Distribution of {selected_column}",
@@ -362,9 +367,11 @@ with main_tabs[1]:
                     "Unique Values": column_data.nunique(),
                     "Most Common": column_data.mode()[0] if not column_data.mode().empty else "N/A"
                 }
-                st.write(pd.DataFrame(stats.items(), columns=["Statistic", "Value"]))
+                stats_df = pd.DataFrame(stats.items(), columns=["Statistic", "Value"])
+                st.dataframe(stats_df, use_container_width=True)
+                
                 st.subheader("Top Values")
-                st.write(value_counts.head(10))
+                st.dataframe(value_counts.head(10), use_container_width=True)
                 if len(value_counts) <= 20:
                     fig = px.bar(
                         value_counts.head(10), x='Value', y='Count', 
@@ -372,5 +379,31 @@ with main_tabs[1]:
                         color_discrete_sequence=px.colors.qualitative.Pastel
                     )
                     st.plotly_chart(fig, use_container_width=True)
+            
+            # Convert stats to serializable types (convert numpy.int64/float64 to native types)
+            stats_serializable = {
+                k: int(v) if isinstance(v, (np.integer)) 
+                else float(v) if isinstance(v, (np.floating)) 
+                else v 
+                for k, v in stats.items()
+            }
+            
+            # Additional LLM analysis: allow user to ask questions about the column data
+            with st.expander("LLM Column Analysis"):
+                st.write("Ask the LLM for further insights or commentary on this column data.")
+                user_question = st.text_input("Ask LLM about this column:", key=f"llm_question_{selected_column}")
+                if st.button("Submit Question", key=f"ask_llm_{selected_column}"):
+                    # Use a sample of the column data (first 50 values) and the computed stats
+                    sample_data = column_data.head(50).to_list()
+                    analysis_prompt = f"""You are analyzing the data for the column "{selected_column}".
+Column statistics: {json.dumps(stats_serializable)}
+A sample of the column data (first 50 values): {sample_data}.
+Please provide additional insights, interpretation, and any recommendations based on this analysis.
+User question: {user_question}
+"""
+                    response = call_llm(analysis_prompt)
+                    st.markdown("### LLM Response")
+                    st.write(response)
     else:
         st.info("Please upload an Excel file in the sidebar")
+
