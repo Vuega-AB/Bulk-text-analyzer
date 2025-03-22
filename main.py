@@ -1,11 +1,14 @@
 import os
-from dotenv import load_dotenv
-import streamlit as st
-import pandas as pd
 import re
-import openai
+import json
+import numpy as np
+import pandas as pd
+import streamlit as st
 import matplotlib.pyplot as plt
+import plotly.express as px
 from io import BytesIO
+from dotenv import load_dotenv
+import openai
 import google.generativeai as genai
 
 # Load environment variables from .env
@@ -136,9 +139,101 @@ from utils import get_data
 df = get_data()
 
 if df is not None:
+    st.session_state.df = df  # Store the dataframe in session_state for later use
     with st.sidebar.expander("📊 Data Preview", expanded=True):
         st.dataframe(df.head(5))
-    if not df.empty:
-        handle_openai_query(df, ", ".join(df.columns), selected_llm, custom_instruction=user_instruction)
-    else:
-        st.warning("Empty dataset provided.")
+    
+    # Create two tabs: one for LLM Visualizations and another for Column Analysis
+    main_tabs = st.tabs(["Visualization", "Column Analysis"])
+    
+    # --- Visualization Tab ---
+    with main_tabs[0]:
+        st.header("Visualization")
+        if not df.empty:
+            handle_openai_query(df, ", ".join(df.columns), selected_llm, custom_instruction=user_instruction)
+        else:
+            st.warning("Empty dataset provided.")
+    
+    # --- Column Analysis Tab ---
+    with main_tabs[1]:
+        st.title("Column Analysis")
+        st.write("Select a column from your uploaded dataset to view basic statistics and a visualization.")
+        if st.session_state.df is not None:
+            columns = list(st.session_state.df.columns)
+            selected_column = st.selectbox("Select column for analysis", columns)
+            if selected_column:
+                st.subheader(f"Statistics for {selected_column}")
+                column_data = st.session_state.df[selected_column]
+                data_type = column_data.dtype
+                
+                # Compute statistics and show visualizations
+                if pd.api.types.is_numeric_dtype(data_type):
+                    stats = {
+                        "Count": column_data.count(),
+                        "Missing": column_data.isna().sum(),
+                        "Mean": column_data.mean(),
+                        "Median": column_data.median(),
+                        "Min": column_data.min(),
+                        "Max": column_data.max(),
+                        "Std Dev": column_data.std()
+                    }
+                    # Use st.dataframe with a set height to make the table larger
+                    stats_df = pd.DataFrame(stats.items(), columns=["Statistic", "Value"])
+                    st.dataframe(stats_df, use_container_width=True)
+                    
+                    fig = px.histogram(
+                        st.session_state.df, x=selected_column, 
+                        title=f"Distribution of {selected_column}",
+                        color_discrete_sequence=px.colors.qualitative.Pastel
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    value_counts = column_data.value_counts().reset_index()
+                    value_counts.columns = ['Value', 'Count']
+                    stats = {
+                        "Count": column_data.count(),
+                        "Missing": column_data.isna().sum(),
+                        "Unique Values": column_data.nunique(),
+                        "Most Common": column_data.mode()[0] if not column_data.mode().empty else "N/A"
+                    }
+                    stats_df = pd.DataFrame(stats.items(), columns=["Statistic", "Value"])
+                    st.dataframe(stats_df, use_container_width=True)
+                    
+                    st.subheader("Top Values")
+                    st.dataframe(value_counts.head(10), use_container_width=True)
+                    if len(value_counts) <= 20:
+                        fig = px.bar(
+                            value_counts.head(10), x='Value', y='Count', 
+                            title=f"Top 10 values in {selected_column}",
+                            color_discrete_sequence=px.colors.qualitative.Pastel
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                
+                # Convert stats to serializable types (convert numpy.int64/float64 to native types)
+                stats_serializable = {
+                    k: int(v) if isinstance(v, (np.integer)) 
+                    else float(v) if isinstance(v, (np.floating)) 
+                    else v 
+                    for k, v in stats.items()
+                }
+                
+                # Additional LLM analysis: allow user to ask questions about the column data
+                with st.expander("LLM Column Analysis"):
+                    st.write("Ask the LLM for further insights or commentary on this column data.")
+                    user_question = st.text_input("Ask LLM about this column:", key=f"llm_question_{selected_column}")
+                    if st.button("Submit Question", key=f"ask_llm_{selected_column}"):
+                        # Use a sample of the column data (first 50 values) and the computed stats
+                        sample_data = column_data.head(50).to_list()
+                        analysis_prompt = f"""You are analyzing the data for the column "{selected_column}".
+Column statistics: {json.dumps(stats_serializable)}
+A sample of the column data (first 50 values): {sample_data}.
+Please provide additional insights, interpretation, and any recommendations based on this analysis.
+User question: {user_question}
+"""
+                        response = call_llm(analysis_prompt)
+                        st.markdown("### LLM Response")
+                        st.write(response)
+        else:
+            st.info("Please upload an Excel file in the sidebar")
+else:
+    st.info("Awaiting file upload...")
