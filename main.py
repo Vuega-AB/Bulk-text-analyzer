@@ -102,6 +102,15 @@ def handle_openai_query(df, column_names, selected_llm, custom_instruction=""):
     st.toast("Visualization generated successfully!", icon="✅")
     execute_openai_code(result, df)
 
+# New: Define call_llm function to answer column analysis questions
+def call_llm(prompt):
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant specialized in data analysis."},
+        {"role": "user", "content": prompt}
+    ]
+    response = openai.chat.completions.create(model=MODEL_NAME, messages=messages, temperature=0.7)
+    return response.choices[0].message.content
+
 def display_app_header():
     st.title("Data Visualization with LLM 📊")
     st.markdown("**Prompt about your data, and see it visualized ✨**")
@@ -177,7 +186,6 @@ if df is not None:
                         "Max": column_data.max(),
                         "Std Dev": column_data.std()
                     }
-                    # Use st.dataframe with a set height to make the table larger
                     stats_df = pd.DataFrame(stats.items(), columns=["Statistic", "Value"])
                     st.dataframe(stats_df, use_container_width=True)
                     
