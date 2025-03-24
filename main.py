@@ -15,7 +15,7 @@ import google.generativeai as genai
 load_dotenv()
 
 # Set Streamlit page layout
-st.set_page_config(page_title="Excel Data Visualization with LLM",  layout="wide")
+st.set_page_config(page_title="Excel Data Visualization with LLM")
 
 MODEL_NAME = "gpt-4o"
 
